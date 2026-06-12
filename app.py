@@ -8,11 +8,16 @@ st.set_page_config(page_title="Bitácora de Laboratorio", layout="wide", page_ic
 # Conexión a Google Sheets
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-def load_data():
+NOMBRES = ['Carlos Villalobos', 'Diego Abarca', 'Isidora Moscoso']
+
+def load_data(worksheet=None):
     try:
         # Se lee la hoja (por defecto intentamos leer la primera hoja)
         # En la vida real, si la hoja está en blanco, podría lanzar error al no tener columnas
-        df = conn.read(usecols=[0, 1, 2], ttl=0)
+        if worksheet:
+            df = conn.read(worksheet=worksheet, usecols=[0, 1, 2], ttl=0)
+        else:
+            df = conn.read(usecols=[0, 1, 2], ttl=0)
         df = df.dropna(how="all") # Limpiar filas totalmente vacías
         
         # Verificar si las columnas son las esperadas
@@ -32,7 +37,7 @@ with tab1:
     st.header("Registrar Nueva Tarea")
     with st.form("task_form"):
         fecha = st.date_input("Fecha", date.today())
-        nombre = st.text_input("Nombre del Integrante")
+        nombre = st.selectbox("Nombre del Integrante", NOMBRES)
         trabajo = st.text_area("Descripción del Trabajo")
         submitted = st.form_submit_button("Guardar Tarea")
 
@@ -46,12 +51,12 @@ with tab1:
                     "Trabajo": trabajo
                 }])
                 
-                existing_data = load_data()
+                existing_data = load_data(worksheet=nombre)
                 updated_data = pd.concat([existing_data, new_data], ignore_index=True)
                 
                 try:
                     # Actualiza la hoja con los nuevos datos
-                    conn.update(data=updated_data)
+                    conn.update(worksheet=nombre, data=updated_data)
                     st.success("¡Tarea guardada exitosamente!")
                     st.cache_data.clear() # Limpia el caché para la próxima lectura
                 except Exception as e:
@@ -68,14 +73,17 @@ with tab2:
     
     if password == ADMIN_PASSWORD:
         st.success("Acceso concedido.")
-        data = load_data()
+        
+        all_data = []
+        for n in NOMBRES:
+            all_data.append(load_data(worksheet=n))
+        data = pd.concat(all_data, ignore_index=True)
         
         if data.empty:
             st.info("No hay tareas registradas aún.")
         else:
             st.subheader("Filtrar Tareas")
-            integrantes = data["Nombre"].unique().tolist()
-            integrante_seleccionado = st.selectbox("Seleccionar Integrante", ["Todos"] + integrantes)
+            integrante_seleccionado = st.selectbox("Seleccionar Integrante", ["Todos"] + NOMBRES)
             
             if integrante_seleccionado == "Todos":
                 filtered_data = data
