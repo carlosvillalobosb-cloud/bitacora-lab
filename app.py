@@ -10,24 +10,34 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 
 NOMBRES = ['Carlos Villalobos', 'Diego Abarca', 'Isidora Moscoso']
 
+def load_tareas_asignadas():
+    try:
+        df = conn.read(worksheet="Tareas_Asignadas", usecols=[0], ttl=0)
+        df = df.dropna(how="all")
+        if df.empty or list(df.columns) != ["Tarea"]:
+            return []
+        return df["Tarea"].tolist()
+    except Exception:
+        return []
+
 def load_data(worksheet=None):
     try:
         # Se lee la hoja (por defecto intentamos leer la primera hoja)
         # En la vida real, si la hoja está en blanco, podría lanzar error al no tener columnas
         if worksheet:
-            df = conn.read(worksheet=worksheet, usecols=[0, 1, 2], ttl=0)
+            df = conn.read(worksheet=worksheet, usecols=[0, 1, 2, 3], ttl=0)
         else:
-            df = conn.read(usecols=[0, 1, 2], ttl=0)
+            df = conn.read(usecols=[0, 1, 2, 3], ttl=0)
         df = df.dropna(how="all") # Limpiar filas totalmente vacías
         
         # Verificar si las columnas son las esperadas
-        if df.empty or list(df.columns) != ["Fecha", "Nombre", "Trabajo"]:
-             df = pd.DataFrame(columns=["Fecha", "Nombre", "Trabajo"])
+        if df.empty or list(df.columns) != ["Fecha", "Nombre", "Tarea Asignada", "Trabajo"]:
+             df = pd.DataFrame(columns=["Fecha", "Nombre", "Tarea Asignada", "Trabajo"])
              
         return df
     except Exception as e:
         # Si la hoja está completamente vacía o no existe, devolvemos un df vacío
-        return pd.DataFrame(columns=["Fecha", "Nombre", "Trabajo"])
+        return pd.DataFrame(columns=["Fecha", "Nombre", "Tarea Asignada", "Trabajo"])
 
 st.title("🧪 Bitácora de Tareas de Laboratorio")
 
@@ -35,19 +45,26 @@ tab1, tab2 = st.tabs(["📝 Ingreso de Tareas", "📊 Dashboard de Administrador
 
 with tab1:
     st.header("Registrar Nueva Tarea")
+    
+    tareas_asignadas = load_tareas_asignadas()
+    if not tareas_asignadas:
+        tareas_asignadas = ["Sin tareas configuradas"]
+        
     with st.form("task_form"):
         fecha = st.date_input("Fecha", date.today())
         nombre = st.selectbox("Nombre del Integrante", NOMBRES)
+        tarea_asignada = st.selectbox("Tarea Asignada", tareas_asignadas)
         trabajo = st.text_area("Descripción del Trabajo")
         submitted = st.form_submit_button("Guardar Tarea")
 
         if submitted:
-            if not nombre or not trabajo:
-                st.error("Por favor, completa todos los campos.")
+            if not nombre or not trabajo or tarea_asignada == "Sin tareas configuradas":
+                st.error("Por favor, completa todos los campos y asegúrate de que haya tareas asignadas.")
             else:
                 new_data = pd.DataFrame([{
                     "Fecha": fecha.strftime("%Y-%m-%d"),
                     "Nombre": nombre,
+                    "Tarea Asignada": tarea_asignada,
                     "Trabajo": trabajo
                 }])
                 
@@ -97,6 +114,38 @@ with tab2:
             conteo = data["Nombre"].value_counts().reset_index()
             conteo.columns = ["Nombre", "Cantidad de Tareas"]
             st.bar_chart(conteo.set_index("Nombre"))
+            
+            st.subheader("Distribución de Tareas Asignadas")
+            if "Tarea Asignada" in data.columns and not data.empty:
+                conteo_tareas = data["Tarea Asignada"].value_counts().reset_index()
+                conteo_tareas.columns = ["Tarea Asignada", "Cantidad"]
+                st.bar_chart(conteo_tareas.set_index("Tarea Asignada"))
+                
+        st.divider()
+        st.subheader("Gestionar Tareas Asignadas")
+        with st.form("nueva_tarea_form"):
+            nueva_tarea = st.text_input("Nueva Tarea Asignada (Ej. Ensayos de tracción)")
+            submit_tarea = st.form_submit_button("Agregar Tarea")
+            if submit_tarea:
+                if nueva_tarea:
+                    tareas_actuales = load_tareas_asignadas()
+                    if "Sin tareas configuradas" in tareas_actuales:
+                        tareas_actuales.remove("Sin tareas configuradas")
+                        
+                    if nueva_tarea not in tareas_actuales:
+                        tareas_actuales.append(nueva_tarea)
+                        df_tareas = pd.DataFrame(tareas_actuales, columns=["Tarea"])
+                        try:
+                            conn.update(worksheet="Tareas_Asignadas", data=df_tareas)
+                            st.success(f"Tarea '{nueva_tarea}' agregada exitosamente.")
+                            st.cache_data.clear() # Limpia caché para que se refresque el selectbox
+                            st.rerun() # Fuerza una recarga de la app
+                        except Exception as e:
+                            st.error(f"Error al guardar tarea: {e}")
+                    else:
+                        st.warning("La tarea ya existe.")
+                else:
+                    st.error("Por favor, escribe una tarea.")
             
     elif password:
         st.error("Contraseña incorrecta.")
