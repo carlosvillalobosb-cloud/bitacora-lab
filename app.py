@@ -25,19 +25,19 @@ def load_data(worksheet=None):
         # Se lee la hoja (por defecto intentamos leer la primera hoja)
         # En la vida real, si la hoja está en blanco, podría lanzar error al no tener columnas
         if worksheet:
-            df = conn.read(worksheet=worksheet, usecols=[0, 1, 2, 3], ttl=0)
+            df = conn.read(worksheet=worksheet, usecols=[0, 1, 2, 3, 4], ttl=0)
         else:
-            df = conn.read(usecols=[0, 1, 2, 3], ttl=0)
+            df = conn.read(usecols=[0, 1, 2, 3, 4], ttl=0)
         df = df.dropna(how="all") # Limpiar filas totalmente vacías
         
         # Verificar si las columnas son las esperadas
-        if df.empty or list(df.columns) != ["Fecha", "Nombre", "Tarea Asignada", "Trabajo"]:
-             df = pd.DataFrame(columns=["Fecha", "Nombre", "Tarea Asignada", "Trabajo"])
+        if df.empty or list(df.columns) != ["Fecha", "Nombre", "Tarea Asignada", "Trabajo", "Horas"]:
+             df = pd.DataFrame(columns=["Fecha", "Nombre", "Tarea Asignada", "Trabajo", "Horas"])
              
         return df
     except Exception as e:
         # Si la hoja está completamente vacía o no existe, devolvemos un df vacío
-        return pd.DataFrame(columns=["Fecha", "Nombre", "Tarea Asignada", "Trabajo"])
+        return pd.DataFrame(columns=["Fecha", "Nombre", "Tarea Asignada", "Trabajo", "Horas"])
 
 st.title("🧪 Bitácora de Tareas de Laboratorio")
 
@@ -55,6 +55,7 @@ with tab1:
         nombre = st.selectbox("Nombre del Integrante", NOMBRES)
         tarea_asignada = st.selectbox("Tarea Asignada", tareas_asignadas)
         trabajo = st.text_area("Descripción del Trabajo")
+        horas_dedicadas = st.number_input("Horas Dedicadas (ej: 1.5 = 1h 30m)", step=0.5, value=1.0)
         submitted = st.form_submit_button("Guardar Tarea")
 
         if submitted:
@@ -65,7 +66,8 @@ with tab1:
                     "Fecha": fecha.strftime("%Y-%m-%d"),
                     "Nombre": nombre,
                     "Tarea Asignada": tarea_asignada,
-                    "Trabajo": trabajo
+                    "Trabajo": trabajo,
+                    "Horas": horas_dedicadas
                 }])
                 
                 existing_data = load_data(worksheet=nombre)
@@ -118,8 +120,51 @@ with tab2:
             st.subheader("Distribución de Tareas Asignadas")
             if "Tarea Asignada" in data.columns and not data.empty:
                 conteo_tareas = data["Tarea Asignada"].value_counts().reset_index()
-                conteo_tareas.columns = ["Tarea Asignada", "Cantidad"]
-                st.bar_chart(conteo_tareas.set_index("Tarea Asignada"))
+                conteo_tareas.columns = ["Tarea", "Bloques Dedicados"]
+                
+                st.dataframe(conteo_tareas, hide_index=True, use_container_width=True)
+                st.bar_chart(conteo_tareas.set_index("Tarea"))
+            
+            st.subheader("Gráfico de Línea de Tiempo de Esfuerzo")
+            if "Horas" in data.columns and not data.empty:
+                data["Horas"] = pd.to_numeric(data["Horas"], errors="coerce").fillna(0)
+                
+                # Filtros justos arriba del gráfico
+                col1, col2 = st.columns(2)
+                with col1:
+                    filtro_integrantes = st.multiselect("Filtrar por Integrante", options=data["Nombre"].unique())
+                with col2:
+                    if "Tarea Asignada" in data.columns:
+                        filtro_tareas = st.multiselect("Filtrar por Tarea", options=data["Tarea Asignada"].unique())
+                    else:
+                        filtro_tareas = []
+
+                # Aplicar filtros (si están vacíos, se asume 'Todos')
+                df_grafico = data.copy()
+                if filtro_integrantes:
+                    df_grafico = df_grafico[df_grafico["Nombre"].isin(filtro_integrantes)]
+                if filtro_tareas and "Tarea Asignada" in df_grafico.columns:
+                    df_grafico = df_grafico[df_grafico["Tarea Asignada"].isin(filtro_tareas)]
+
+                if df_grafico.empty:
+                    st.info("No hay datos para la selección actual.")
+                else:
+                    # Crear columna temporal que combina Nombre y Tarea
+                    if "Tarea Asignada" in df_grafico.columns:
+                        df_grafico["Nombre_Tarea"] = df_grafico["Nombre"] + " - " + df_grafico["Tarea Asignada"]
+                    else:
+                        df_grafico["Nombre_Tarea"] = df_grafico["Nombre"]
+
+                    # Hacer el pivot_table
+                    timeline_data = df_grafico.pivot_table(
+                        index="Fecha", 
+                        columns="Nombre_Tarea", 
+                        values="Horas", 
+                        aggfunc="sum", 
+                        fill_value=0
+                    )
+                    
+                    st.line_chart(timeline_data)
                 
         st.divider()
         st.subheader("Gestionar Tareas Asignadas")
