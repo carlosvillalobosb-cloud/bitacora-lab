@@ -129,42 +129,42 @@ with tab2:
             if "Horas" in data.columns and not data.empty:
                 data["Horas"] = pd.to_numeric(data["Horas"], errors="coerce").fillna(0)
                 
-                # Filtros justos arriba del gráfico
-                col1, col2 = st.columns(2)
-                with col1:
-                    filtro_integrantes = st.multiselect("Filtrar por Integrante", options=data["Nombre"].unique())
-                with col2:
-                    if "Tarea Asignada" in data.columns:
-                        filtro_tareas = st.multiselect("Filtrar por Tarea", options=data["Tarea Asignada"].unique())
-                    else:
-                        filtro_tareas = []
-
-                # Aplicar filtros (si están vacíos, se asume 'Todos')
-                df_grafico = data.copy()
-                if filtro_integrantes:
-                    df_grafico = df_grafico[df_grafico["Nombre"].isin(filtro_integrantes)]
-                if filtro_tareas and "Tarea Asignada" in df_grafico.columns:
-                    df_grafico = df_grafico[df_grafico["Tarea Asignada"].isin(filtro_tareas)]
-
-                if df_grafico.empty:
-                    st.info("No hay datos para la selección actual.")
+                # Opción para elegir el tipo de visualización
+                tipo_agrupacion = st.radio("Mostrar gráficos por:", ["Nombres (Integrantes)", "Tareas Asignadas"], horizontal=True)
+                
+                columna_filtro = "Nombre" if tipo_agrupacion == "Nombres (Integrantes)" else "Tarea Asignada"
+                
+                if columna_filtro in data.columns:
+                    opciones_unicas = data[columna_filtro].unique().tolist()
                 else:
-                    # Crear columna temporal que combina Nombre y Tarea
-                    if "Tarea Asignada" in df_grafico.columns:
-                        df_grafico["Nombre_Tarea"] = df_grafico["Nombre"] + " - " + df_grafico["Tarea Asignada"]
-                    else:
-                        df_grafico["Nombre_Tarea"] = df_grafico["Nombre"]
+                    opciones_unicas = []
 
-                    # Hacer el pivot_table
-                    timeline_data = df_grafico.pivot_table(
-                        index="Fecha", 
-                        columns="Nombre_Tarea", 
-                        values="Horas", 
-                        aggfunc="sum", 
-                        fill_value=0
-                    )
-                    
-                    st.line_chart(timeline_data)
+                # Multiselect para elegir qué elementos graficar
+                seleccion = st.multiselect(
+                    f"Selecciona {tipo_agrupacion}:",
+                    options=opciones_unicas,
+                    default=opciones_unicas
+                )
+
+                if not seleccion:
+                    st.info("Selecciona al menos una opción para visualizar los gráficos.")
+                else:
+                    # Bucle for para crear un gráfico independiente para cada opción seleccionada
+                    for item in seleccion:
+                        # Título dinámico para el gráfico
+                        st.caption(f"📈 **{tipo_agrupacion.split(' ')[0]}:** {item}")
+                        
+                        # Filtrar el DataFrame consolidado
+                        df_filtrado = data[data[columna_filtro] == item]
+                        
+                        if not df_filtrado.empty:
+                            # Agrupar por fecha y sumar horas para ese item específico
+                            df_grafico = df_filtrado.groupby("Fecha")["Horas"].sum()
+                            
+                            # Dibujar el line chart
+                            st.line_chart(df_grafico)
+                        else:
+                            st.write(f"No hay registros para {item}.")
                 
         st.divider()
         st.subheader("Gestionar Tareas Asignadas")
